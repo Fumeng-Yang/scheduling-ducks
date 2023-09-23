@@ -244,8 +244,11 @@ slot_uniqueness_heuristics
 
 # 5 Make the 1-on-1 meetings
 
+The idea is very simple. Get an available slot, check who is available,
+schedule it. Remove scheduled timeslots and students, and try next one.
+
 ``` r
-get_a_schedule = function(max_iter = 100, 
+get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10, 
                           duck_ordered_table, 
                           slot_order_table,
                           use_duck_order = TRUE){
@@ -269,7 +272,7 @@ get_a_schedule = function(max_iter = 100,
     # pull out who is available
     available_ducks = duck_avails %>% 
                       # remove scheduled ducks
-                      select(-scheduled_ducks) %>% 
+                      select(-all_of(scheduled_ducks)) %>% 
                       # who is available
                       filter(timeslot == current_slot$timeslot[1]) %>% 
                       select_if(~ any(. == TRUE)) 
@@ -312,22 +315,7 @@ Deterministic schedule based on heuristics
 ``` r
 a_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table,
                             slot_order_table = slot_uniqueness_heuristics)
-```
 
-    ## Warning: Using an external vector in selections was deprecated in tidyselect 1.1.0.
-    ## ℹ Please use `all_of()` or `any_of()` instead.
-    ##   # Was:
-    ##   data %>% select(scheduled_ducks)
-    ## 
-    ##   # Now:
-    ##   data %>% select(all_of(scheduled_ducks))
-    ## 
-    ## See <https://tidyselect.r-lib.org/reference/faq-external-vector.html>.
-    ## This warning is displayed once every 8 hours.
-    ## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
-    ## generated.
-
-``` r
 a_schedule %>% 
   left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
   arrange(timeslot, duck)
@@ -356,10 +344,19 @@ a_schedule %>%
 | duck8  |      409 | Wed | 16:00 - 16:30 |
 | duck8  |      410 | Wed | 16:30 - 17:00 |
 
+So.. if this scheduling isn’t too hard. We can just randomize the order
+and generate another schedule
+
 ``` r
 b_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
                             slot_order_table = slot_uniqueness_heuristics)
+```
 
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+``` r
 b_schedule %>% 
   left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
   arrange(timeslot, duck)
@@ -369,34 +366,32 @@ b_schedule %>%
 |:-------|---------:|:----|:--------------|
 | duck7  |      102 | Mon | 10:30 - 11:00 |
 | duck7  |      103 | Mon | 11:00 - 11:30 |
-| duck6  |      105 | Mon | 12:30 - 13:00 |
-| duck6  |      106 | Mon | 13:30 - 14:00 |
-| duck1  |      108 | Mon | 15:30 - 16:00 |
-| duck1  |      109 | Mon | 16:00 - 16:30 |
-| duck5  |      110 | Mon | 16:30 - 17:00 |
-| duck5  |      111 | Mon | 17:00 - 17:30 |
+| duck4  |      105 | Mon | 12:30 - 13:00 |
+| duck4  |      106 | Mon | 13:30 - 14:00 |
+| duck10 |      108 | Mon | 15:30 - 16:00 |
+| duck10 |      109 | Mon | 16:00 - 16:30 |
+| duck6  |      110 | Mon | 16:30 - 17:00 |
+| duck6  |      111 | Mon | 17:00 - 17:30 |
 | duck2  |      201 | Thu | 10:00 - 10:30 |
 | duck2  |      202 | Thu | 10:30 - 11:00 |
 | duck3  |      202 | Thu | 10:30 - 11:00 |
 | duck3  |      203 | Thu | 11:00 - 11:30 |
-| duck8  |      204 | Thu | 12:00 - 12:30 |
-| duck8  |      205 | Thu | 12:30 - 13:00 |
-| duck9  |      303 | Tue | 11:00 - 11:30 |
-| duck10 |      304 | Tue | 12:00 - 12:30 |
-| duck9  |      304 | Tue | 12:00 - 12:30 |
-| duck10 |      305 | Tue | 12:30 - 13:00 |
-| duck4  |      409 | Wed | 16:00 - 16:30 |
-| duck4  |      410 | Wed | 16:30 - 17:00 |
+| duck9  |      204 | Thu | 12:00 - 12:30 |
+| duck9  |      205 | Thu | 12:30 - 13:00 |
+| duck5  |      304 | Tue | 12:00 - 12:30 |
+| duck5  |      305 | Tue | 12:30 - 13:00 |
+| duck8  |      409 | Wed | 16:00 - 16:30 |
+| duck8  |      410 | Wed | 16:30 - 17:00 |
 
-# 6 evaluate a schedule
+# 6 Evaluate a schedule
 
-We check how many ‘Maybe’ we have to do.
+We check how many ’Maybe’s we have to do.
 
 ``` r
-eval_schedule = function(signup, schedule){
+eval_schedule = function(signup, schedule, message = TRUE){
   
   signup_longer <- signup %>% 
-                    pivot_longer(cols = 5:length(.), names_to = 'duck', values_to = 'goodness')
+                   pivot_longer(cols = 5:length(.), names_to = 'duck', values_to = 'goodness')
   
   result_goodness <- 
     schedule %>% 
@@ -407,13 +402,25 @@ eval_schedule = function(signup, schedule){
   
   value = mean(result_goodness[[advisor_col]]) + mean(result_goodness$goodness)
   
-  cat('1 = Maybe, the advisor\'s maybe:')
-  print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
-   
-  cat('1 = Maybe, students\' maybe:')
-  print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
+  if(message){
+      cat('1 = Maybe, the advisor\'s maybe:')
+      if(nrow(result_goodness  %>% filter(!!sym(advisor_col) != 2)) > 0){
+         print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
+      }else{
+         print('none')
+      }
+      
+      cat('1 = Maybe, students\' maybe:')
+      if(nrow(result_goodness  %>% filter(goodness != 2)) > 0){
+        print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
+      }else{
+        print('none')
+      }
+      
+      cat(paste0('overall utility is ', value, ' (higher is better) '))
+  }
   
-  cat(paste0('overall utility is ', value, ' (higher is better) '))
+  return(value)
 }
 ```
 
@@ -445,8 +452,83 @@ eval_schedule(signup, a_schedule)
     ## +---+-------+----------+-----+---------------+---------+----------+
     ## overall utility is 3.65 (higher is better)
 
+    ## [1] 3.65
+
 ``` r
 eval_schedule(signup, b_schedule)
+```
+
+    ## 1 = Maybe, the advisor's maybe:
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## |   | duck   | timeslot | day | time          | bigduck | goodness |
+    ## +===+========+==========+=====+===============+=========+==========+
+    ## | 1 | duck7  | 102.00   | Mon | 10:30 - 11:00 | 1.00    | 2.00     |
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## | 2 | duck7  | 103.00   | Mon | 11:00 - 11:30 | 1.00    | 2.00     |
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## | 3 | duck10 | 109.00   | Mon | 16:00 - 16:30 | 1.00    | 2.00     |
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## | 4 | duck6  | 110.00   | Mon | 16:30 - 17:00 | 1.00    | 2.00     |
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## | 5 | duck6  | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
+    ## +---+--------+----------+-----+---------------+---------+----------+
+    ## 1 = Maybe, students' maybe:[1] "none"
+    ## overall utility is 3.72222222222222 (higher is better)
+
+    ## [1] 3.722222
+
+# 7 Generate a brunch and get the best
+
+``` r
+seed = seq(10, 100, length.out = 10)
+current = 0
+schedule = NULL
+
+for(s in seed){
+  set.seed(s)
+  i_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
+                              slot_order_table = slot_uniqueness_heuristics)
+  if(nrow(i_schedule) == 2 * nrow(duck_avail_heuristics_table)){
+      #print(i_schedule)
+      value = eval_schedule(signup, i_schedule, message = FALSE)
+      if(value >= current){
+         current = value
+         schedule = i_schedule
+      }
+  }
+}
+```
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+    ## Warning in get_a_schedule(duck_ordered_table =
+    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
+    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
+
+``` r
+eval_schedule(signup, schedule)
 ```
 
     ## 1 = Maybe, the advisor's maybe:
@@ -457,16 +539,42 @@ eval_schedule(signup, b_schedule)
     ## +---+-------+----------+-----+---------------+---------+----------+
     ## | 2 | duck7 | 103.00   | Mon | 11:00 - 11:30 | 1.00    | 2.00     |
     ## +---+-------+----------+-----+---------------+---------+----------+
-    ## | 3 | duck1 | 109.00   | Mon | 16:00 - 16:30 | 1.00    | 2.00     |
+    ## | 3 | duck6 | 109.00   | Mon | 16:00 - 16:30 | 1.00    | 2.00     |
     ## +---+-------+----------+-----+---------------+---------+----------+
-    ## | 4 | duck5 | 110.00   | Mon | 16:30 - 17:00 | 1.00    | 2.00     |
+    ## | 4 | duck2 | 110.00   | Mon | 16:30 - 17:00 | 1.00    | 2.00     |
     ## +---+-------+----------+-----+---------------+---------+----------+
-    ## | 5 | duck5 | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
+    ## | 5 | duck2 | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
     ## +---+-------+----------+-----+---------------+---------+----------+
-    ## 1 = Maybe, students' maybe:
-    ## +---+-------+----------+-----+---------------+---------+----------+
-    ## |   | duck  | timeslot | day | time          | bigduck | goodness |
-    ## +===+=======+==========+=====+===============+=========+==========+
-    ## | 1 | duck9 | 304.00   | Tue | 12:00 - 12:30 | 2.00    | 1.00     |
-    ## +---+-------+----------+-----+---------------+---------+----------+
-    ## overall utility is 3.7 (higher is better)
+    ## 1 = Maybe, students' maybe:[1] "none"
+    ## overall utility is 3.75 (higher is better)
+
+    ## [1] 3.75
+
+``` r
+schedule %>% 
+    left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
+    arrange(timeslot, duck)
+```
+
+| duck   | timeslot | day | time          |
+|:-------|---------:|:----|:--------------|
+| duck7  |      102 | Mon | 10:30 - 11:00 |
+| duck7  |      103 | Mon | 11:00 - 11:30 |
+| duck9  |      105 | Mon | 12:30 - 13:00 |
+| duck9  |      106 | Mon | 13:30 - 14:00 |
+| duck6  |      108 | Mon | 15:30 - 16:00 |
+| duck6  |      109 | Mon | 16:00 - 16:30 |
+| duck2  |      110 | Mon | 16:30 - 17:00 |
+| duck2  |      111 | Mon | 17:00 - 17:30 |
+| duck1  |      201 | Thu | 10:00 - 10:30 |
+| duck1  |      202 | Thu | 10:30 - 11:00 |
+| duck3  |      202 | Thu | 10:30 - 11:00 |
+| duck3  |      203 | Thu | 11:00 - 11:30 |
+| duck8  |      204 | Thu | 12:00 - 12:30 |
+| duck8  |      205 | Thu | 12:30 - 13:00 |
+| duck5  |      303 | Tue | 11:00 - 11:30 |
+| duck10 |      304 | Tue | 12:00 - 12:30 |
+| duck5  |      304 | Tue | 12:00 - 12:30 |
+| duck10 |      305 | Tue | 12:30 - 13:00 |
+| duck4  |      409 | Wed | 16:00 - 16:30 |
+| duck4  |      410 | Wed | 16:30 - 17:00 |

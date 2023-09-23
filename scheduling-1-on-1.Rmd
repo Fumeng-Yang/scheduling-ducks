@@ -65,7 +65,7 @@ signup_raw %>%
 
 
 ```{r}
-signup
+head(signup)
 ```
 
 
@@ -152,10 +152,12 @@ slot_uniqueness_heuristics
 
 # Make the 1-on-1 meetings
 
+The idea is very simple. Get an available slot, check who is available, schedule it. 
+Remove scheduled timeslots and students, and try next one.
 
 ```{r}
 
-get_a_schedule = function(max_iter = 100, 
+get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10, 
                           duck_ordered_table, 
                           slot_order_table,
                           use_duck_order = TRUE){
@@ -179,7 +181,7 @@ get_a_schedule = function(max_iter = 100,
     # pull out who is available
     available_ducks = duck_avails %>% 
                       # remove scheduled ducks
-                      select(-scheduled_ducks) %>% 
+                      select(-all_of(scheduled_ducks)) %>% 
                       # who is available
                       filter(timeslot == current_slot$timeslot[1]) %>% 
                       select_if(~ any(. == TRUE)) 
@@ -230,7 +232,7 @@ a_schedule %>%
   arrange(timeslot, duck)
 ```
 
-
+So.. if this scheduling isn't too hard. We can just randomize the order and generate another schedule
 
 ```{r}
 b_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
@@ -241,15 +243,15 @@ b_schedule %>%
   arrange(timeslot, duck)
 ```
 
-# evaluate a schedule
+# Evaluate a schedule
 
-We check how many 'Maybe' we have to do. 
+We check how many 'Maybe's we have to do. 
 
 ```{r}
-eval_schedule = function(signup, schedule){
+eval_schedule = function(signup, schedule, message = TRUE){
   
   signup_longer <- signup %>% 
-                    pivot_longer(cols = 5:length(.), names_to = 'duck', values_to = 'goodness')
+                   pivot_longer(cols = 5:length(.), names_to = 'duck', values_to = 'goodness')
   
   result_goodness <- 
     schedule %>% 
@@ -260,13 +262,25 @@ eval_schedule = function(signup, schedule){
   
   value = mean(result_goodness[[advisor_col]]) + mean(result_goodness$goodness)
   
-  cat('1 = Maybe, the advisor\'s maybe:')
-  print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
-   
-  cat('1 = Maybe, students\' maybe:')
-  print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
+  if(message){
+      cat('1 = Maybe, the advisor\'s maybe:')
+      if(nrow(result_goodness  %>% filter(!!sym(advisor_col) != 2)) > 0){
+         print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
+      }else{
+         print('none')
+      }
+      
+      cat('1 = Maybe, students\' maybe:')
+      if(nrow(result_goodness  %>% filter(goodness != 2)) > 0){
+        print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
+      }else{
+        print('none')
+      }
+      
+      cat(paste0('overall utility is ', value, ' (higher is better) '))
+  }
   
-  cat(paste0('overall utility is ', value, ' (higher is better) '))
+  return(value)
 }
   
 ```
@@ -279,3 +293,36 @@ eval_schedule(signup, a_schedule)
 ```{r}
 eval_schedule(signup, b_schedule)
 ```
+
+
+# Generate a brunch and get the best
+
+```{r}
+seed = seq(10, 100, length.out = 10)
+current = 0
+schedule = NULL
+
+for(s in seed){
+  set.seed(s)
+  i_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
+                              slot_order_table = slot_uniqueness_heuristics)
+  if(nrow(i_schedule) == 2 * nrow(duck_avail_heuristics_table)){
+      #print(i_schedule)
+      value = eval_schedule(signup, i_schedule, message = FALSE)
+      if(value >= current){
+         current = value
+         schedule = i_schedule
+      }
+  }
+}
+```
+
+
+```{r}
+eval_schedule(signup, schedule)
+
+schedule %>% 
+    left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
+    arrange(timeslot, duck)
+```
+
