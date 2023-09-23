@@ -1,0 +1,281 @@
+---
+title: "Schedule weekly 1-on-1 meetings"
+output: 
+   github_document:
+    html_preview: false
+    df_print: kable
+    number_sections: yes
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+---
+
+This script tries to schedule weekly 1-1 meeting based on a presumed data format (a sign-up sheet in a special format). We will read this data from a Google spreadsheet. Presumably, we want different students to sign up on this spreadsheet. We want to output a list of 1-on-1 meeting slots.
+
+Our example is at https://docs.google.com/spreadsheets/d/1KYSRe7Wjk7eMQ8e5zqr4U2Y1iC-FKI00Hk8UydrRc6g/edit?usp=sharing (what's the md syntax of link?). Each student, for special reasons, is called a duck 🦆. The big duck is the advisor. Technically we can exclude the big duck column; but to be able to reuse this code in the future, we put the advisor in a separate column.
+
+```{r message=FALSE}
+library(googlesheets4, quietly = TRUE)
+library(magrittr, quietly = TRUE) # %T>% 
+library(tidyverse, quietly = TRUE)
+library(ascii, quietly = TRUE) # print table in plain text
+gs4_deauth()
+```
+
+# Read data
+
+First, we read the signup sheet. To make our life easier, we just read the specified range.
+
+```{r}
+
+signup_raw = range_read("https://docs.google.com/spreadsheets/d/1KYSRe7Wjk7eMQ8e5zqr4U2Y1iC-FKI00Hk8UydrRc6g/edit?usp=sharing",
+           range = 'A1:M49',
+           sheet = 'test'
+           ) 
+
+```
+
+Sanity check
+
+```{r}
+head(signup_raw)
+```
+
+# Format data
+
+Let's first transform data into a format that's easier to work with.
+
+```{r}
+signup <- 
+signup_raw %>% 
+ mutate(across(everything(), ~replace(., . ==  'Yes' , 2))) %>% 
+ mutate(across(everything(), ~replace(., . ==  'No' , 0))) %>% 
+ mutate(across(everything(), ~replace(., . ==  'Maybe' , 1))) %>% 
+ # transform each column into a number 
+ # this assumes the 3 to last column is signups 
+ mutate(across(3:length(.), as.numeric)) %>% 
+ mutate(
+   # some formatting tricks
+   daytrick = as.numeric(as.factor(day)) * 100, 
+   timeslot = daytrick + as.numeric(as.factor(time))) %>% 
+ relocate(timeslot, .after = 'time') %>% 
+  # rm columns which we don't need
+ select(-daytrick)
+
+
+```
+
+
+```{r}
+signup
+```
+
+
+# Compute availabilities
+
+we compute each duck's availability shared with the big duck.
+
+```{r}
+duck_avails <- 
+signup %>% 
+  select(-time) %>% 
+  # if the duck shares the slot with the big duck
+  # (maybe) we can constrain from the big duck?
+  mutate(across(4:length(.), ~ (. > 0 & bigduck > 0))) %>% 
+  #print() %>%
+  # and if the duck is available after this half an hour slot
+  mutate(across(4:length(.), ~ (. & lead(.)))) %>% 
+  #print() %>%
+  mutate_at(4:length(.), ~replace_na(.,FALSE))
+
+head(duck_avails)
+```
+
+
+# Compute heuristics
+
+We then compute heuristics based on the number of possible arrangements
+
+```{r}
+duck_avail_heuristics <- duck_avails %>% 
+  select(4:length(.)) %>% 
+  # separate days
+  split(., as.factor(signup$day)) %>% 
+  # the possible arranges on each day
+  # remove the first one because 
+  lapply(\(x) sapply(x, sum))  %T>% 
+  # print each duck's possible arranges on each day
+  print() %>%
+  # bind them together
+  abind::abind(along = 0) %>% 
+  as_tibble() %>% 
+  # sort
+  sapply(\(x) sum(x)) %>% sort()
+```
+
+how many possible arranges for each duck?
+
+If any duck is zero... you may want to talk to the student...
+
+```{r}
+duck_avail_heuristics
+```
+
+```{r}
+# we remove 0 to avoid other problems
+indices<-which(duck_avail_heuristics>0)
+duck_avail_heuristics_confirmed <- duck_avail_heuristics[indices]
+```
+
+transform into a table form
+
+```{r}
+duck_avail_heuristics_table = tibble(
+  duck = names(duck_avail_heuristics_confirmed),
+  avails = duck_avail_heuristics_confirmed
+)
+
+duck_avail_heuristics_table
+```
+
+
+another heuristics might be how unique an available slot is?
+
+```{r}
+slot_uniqueness_heuristics <- 
+ duck_avails %>% 
+  select(-day, -bigduck) %>% 
+  reframe(timeslot = timeslot, slot_uniqueness = rowSums(across(2:length(.)))) %>% 
+  filter(slot_uniqueness > 0) %>% 
+  arrange(slot_uniqueness)
+
+slot_uniqueness_heuristics
+```
+
+# Make the 1-on-1 meetings
+
+
+```{r}
+
+get_a_schedule = function(max_iter = 100, 
+                          duck_ordered_table, 
+                          slot_order_table,
+                          use_duck_order = TRUE){
+  meetings <- NULL
+  scheduled_ducks <- c()
+  iter <- 1
+  # if we arranged a meeting for each duck?
+  
+  while(iter < max_iter && length(scheduled_ducks)!=nrow(duck_ordered_table)){
+    
+    scheduled_slots <- meetings$timeslot
+    
+    if(is.null(scheduled_slots)) scheduled_slots = c()
+    
+    # the first available slot
+    current_slot = slot_order_table %>% 
+      filter(!(timeslot %in% scheduled_slots))
+    # print(current_slot)
+    # print(current_slot)
+    
+    # pull out who is available
+    available_ducks = duck_avails %>% 
+                      # remove scheduled ducks
+                      select(-scheduled_ducks) %>% 
+                      # who is available
+                      filter(timeslot == current_slot$timeslot[1]) %>% 
+                      select_if(~ any(. == TRUE)) 
+    
+   # print(available_ducks)
+    
+    if(use_duck_order==TRUE){
+    # try to schedule more difficult ducks
+      next_duck <- duck_ordered_table %>% 
+      filter(!(duck %in% scheduled_ducks)) %>% 
+      filter(duck %in% colnames(available_ducks)) %>% 
+      slice(1) %>% pull(duck)
+    }else{
+      next_duck <- colnames(available_ducks)[1]
+    }
+   
+    # if this slot is available for next duck
+    if(!identical(next_duck, character(0))){
+      
+      scheduled_ducks <- c(scheduled_ducks, next_duck)
+      
+      meetings <- meetings %>% 
+      rbind(tibble(duck = c(next_duck,next_duck),  
+                   timeslot = c(current_slot$timeslot[1], current_slot$timeslot[1] + 1)))
+     # print(meetings)
+    }
+    iter = iter + 1
+  }
+  if(length(scheduled_ducks)==nrow(duck_ordered_table))
+     return(meetings)
+  else{
+    warning('return a partial schedule.  perhaps try to shuffle around ducks or timeslots')
+    return(meetings)
+  }
+}
+```
+
+
+
+Deterministic schedule based on heuristics
+
+```{r}
+a_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table,
+                            slot_order_table = slot_uniqueness_heuristics)
+
+a_schedule %>% 
+  left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
+  arrange(timeslot, duck)
+```
+
+
+
+```{r}
+b_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
+                            slot_order_table = slot_uniqueness_heuristics)
+
+b_schedule %>% 
+  left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
+  arrange(timeslot, duck)
+```
+
+# evaluate a schedule
+
+We check how many 'Maybe' we have to do. 
+
+```{r}
+eval_schedule = function(signup, schedule){
+  
+  signup_longer <- signup %>% 
+                    pivot_longer(cols = 5:length(.), names_to = 'duck', values_to = 'goodness')
+  
+  result_goodness <- 
+    schedule %>% 
+    left_join(signup_longer, by = c('duck', 'timeslot')) %>% 
+    arrange(timeslot, duck) 
+  
+  advisor_col = colnames(result_goodness)[5]
+  
+  value = mean(result_goodness[[advisor_col]]) + mean(result_goodness$goodness)
+  
+  cat('1 = Maybe, the advisor\'s maybe:')
+  print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
+   
+  cat('1 = Maybe, students\' maybe:')
+  print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
+  
+  cat(paste0('overall utility is ', value, ' (higher is better) '))
+}
+  
+```
+
+```{r}
+eval_schedule(signup, a_schedule)
+```
+
+
+```{r}
+eval_schedule(signup, b_schedule)
+```
