@@ -350,13 +350,7 @@ and generate another schedule
 ``` r
 b_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
                             slot_order_table = slot_uniqueness_heuristics)
-```
 
-    ## Warning in get_a_schedule(duck_ordered_table =
-    ## duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)), : return
-    ## a partial schedule. perhaps try to shuffle around ducks or timeslots
-
-``` r
 b_schedule %>% 
   left_join(signup %>% select(timeslot, day, time), by = 'timeslot') %>% 
   arrange(timeslot, duck)
@@ -366,22 +360,24 @@ b_schedule %>%
 |:-------|---------:|:----|:--------------|
 | duck7  |      102 | Mon | 10:30 - 11:00 |
 | duck7  |      103 | Mon | 11:00 - 11:30 |
-| duck4  |      105 | Mon | 12:30 - 13:00 |
-| duck4  |      106 | Mon | 13:30 - 14:00 |
-| duck10 |      108 | Mon | 15:30 - 16:00 |
-| duck10 |      109 | Mon | 16:00 - 16:30 |
+| duck9  |      105 | Mon | 12:30 - 13:00 |
+| duck9  |      106 | Mon | 13:30 - 14:00 |
+| duck8  |      108 | Mon | 15:30 - 16:00 |
+| duck8  |      109 | Mon | 16:00 - 16:30 |
 | duck6  |      110 | Mon | 16:30 - 17:00 |
 | duck6  |      111 | Mon | 17:00 - 17:30 |
 | duck2  |      201 | Thu | 10:00 - 10:30 |
+| duck1  |      202 | Thu | 10:30 - 11:00 |
 | duck2  |      202 | Thu | 10:30 - 11:00 |
-| duck3  |      202 | Thu | 10:30 - 11:00 |
-| duck3  |      203 | Thu | 11:00 - 11:30 |
-| duck9  |      204 | Thu | 12:00 - 12:30 |
-| duck9  |      205 | Thu | 12:30 - 13:00 |
+| duck1  |      203 | Thu | 11:00 - 11:30 |
+| duck3  |      204 | Thu | 12:00 - 12:30 |
+| duck3  |      205 | Thu | 12:30 - 13:00 |
+| duck5  |      303 | Tue | 11:00 - 11:30 |
+| duck10 |      304 | Tue | 12:00 - 12:30 |
 | duck5  |      304 | Tue | 12:00 - 12:30 |
-| duck5  |      305 | Tue | 12:30 - 13:00 |
-| duck8  |      409 | Wed | 16:00 - 16:30 |
-| duck8  |      410 | Wed | 16:30 - 17:00 |
+| duck10 |      305 | Tue | 12:30 - 13:00 |
+| duck4  |      409 | Wed | 16:00 - 16:30 |
+| duck4  |      410 | Wed | 16:30 - 17:00 |
 
 # 6 Evaluate a schedule
 
@@ -407,14 +403,14 @@ eval_schedule = function(signup, schedule, message = TRUE){
       if(nrow(result_goodness  %>% filter(!!sym(advisor_col) != 2)) > 0){
          print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
       }else{
-         print('none')
+         cat('none\n')
       }
       
       cat('1 = Maybe, students\' maybe:')
       if(nrow(result_goodness  %>% filter(goodness != 2)) > 0){
         print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
       }else{
-        print('none')
+        cat('none\n')
       }
       
       cat(paste0('overall utility is ', value, ' (higher is better) '))
@@ -459,23 +455,23 @@ eval_schedule(signup, b_schedule)
 ```
 
     ## 1 = Maybe, the advisor's maybe:
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## |   | duck   | timeslot | day | time          | bigduck | goodness |
-    ## +===+========+==========+=====+===============+=========+==========+
-    ## | 1 | duck7  | 102.00   | Mon | 10:30 - 11:00 | 1.00    | 2.00     |
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## | 2 | duck7  | 103.00   | Mon | 11:00 - 11:30 | 1.00    | 2.00     |
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## | 3 | duck10 | 109.00   | Mon | 16:00 - 16:30 | 1.00    | 2.00     |
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## | 4 | duck6  | 110.00   | Mon | 16:30 - 17:00 | 1.00    | 2.00     |
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## | 5 | duck6  | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
-    ## +---+--------+----------+-----+---------------+---------+----------+
-    ## 1 = Maybe, students' maybe:[1] "none"
-    ## overall utility is 3.72222222222222 (higher is better)
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## |   | duck  | timeslot | day | time          | bigduck | goodness |
+    ## +===+=======+==========+=====+===============+=========+==========+
+    ## | 1 | duck7 | 102.00   | Mon | 10:30 - 11:00 | 1.00    | 2.00     |
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## | 2 | duck7 | 103.00   | Mon | 11:00 - 11:30 | 1.00    | 2.00     |
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## | 3 | duck8 | 109.00   | Mon | 16:00 - 16:30 | 1.00    | 2.00     |
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## | 4 | duck6 | 110.00   | Mon | 16:30 - 17:00 | 1.00    | 2.00     |
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## | 5 | duck6 | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
+    ## +---+-------+----------+-----+---------------+---------+----------+
+    ## 1 = Maybe, students' maybe:none
+    ## overall utility is 3.75 (higher is better)
 
-    ## [1] 3.722222
+    ## [1] 3.75
 
 # 7 Generate a brunch and get the best
 
@@ -545,7 +541,7 @@ eval_schedule(signup, schedule)
     ## +---+-------+----------+-----+---------------+---------+----------+
     ## | 5 | duck2 | 111.00   | Mon | 17:00 - 17:30 | 1.00    | 2.00     |
     ## +---+-------+----------+-----+---------------+---------+----------+
-    ## 1 = Maybe, students' maybe:[1] "none"
+    ## 1 = Maybe, students' maybe:none
     ## overall utility is 3.75 (higher is better)
 
     ## [1] 3.75

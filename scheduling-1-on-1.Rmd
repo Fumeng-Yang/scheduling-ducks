@@ -267,14 +267,14 @@ eval_schedule = function(signup, schedule, message = TRUE){
       if(nrow(result_goodness  %>% filter(!!sym(advisor_col) != 2)) > 0){
          print(ascii(result_goodness  %>% filter(!!sym(advisor_col) != 2)), type = "rest")
       }else{
-         print('none')
+         cat('none\n')
       }
       
       cat('1 = Maybe, students\' maybe:')
       if(nrow(result_goodness  %>% filter(goodness != 2)) > 0){
         print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
       }else{
-        print('none')
+        cat('none\n')
       }
       
       cat(paste0('overall utility is ', value, ' (higher is better) '))
