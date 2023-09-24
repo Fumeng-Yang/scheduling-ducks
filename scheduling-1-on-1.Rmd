@@ -77,20 +77,30 @@ head(signup)
 # Compute availabilities
 
 we compute each duck's availability shared with the big duck.
+we also transform data into a format that allows us to consider the beginning time
 
 ```{r}
+advisor_col = colnames(signup_raw)[TIME_INDEX]
+
 duck_avails <- 
 signup %>% 
   select(-time) %>% 
+  rename(bigduck = !!sym(advisor_col)) %>% 
   # if the duck shares the slot with the big duck
   # (maybe) we can constrain from the big duck?
   mutate(across((TIME_INDEX + 1):length(.), ~ (. > 0 & bigduck > 0))) %>% 
   # print() %>%
   # and if the duck is available after this half an hour slot
-  # if we need only half an hour and signup for half hour slots, we can skip this line
+  # if we need only half an hour and signup for half hour slots, we can skip the following lines
   mutate(across((TIME_INDEX + 1):length(.), ~ (. & lead(.)))) %>% 
   #print() %>%
-  mutate_at((TIME_INDEX + 1):length(.), ~replace_na(.,FALSE))
+  mutate_at((TIME_INDEX + 1):length(.), ~replace_na(.,FALSE)) %>% 
+  # we don't begin a meeting on last slot of the day
+  group_by(day) %>% 
+  mutate(bigduck = ifelse(row_number()==group_size(.), 0, bigduck)) %>% 
+  ungroup() %>% 
+  mutate(across((TIME_INDEX + 1):length(.), ~ (. > 0 & bigduck > 0))) 
+
 
 head(duck_avails)
 ```
@@ -168,6 +178,7 @@ get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10,
                           use_duck_order = TRUE){
   meetings <- NULL
   scheduled_ducks <- c()
+  adj_slots <- c()
   iter <- 1
   # if we arranged a meeting for each duck?
   
@@ -179,9 +190,10 @@ get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10,
     
     # the first available slot
     current_slot = slot_ordered_table %>% 
-      filter(!(timeslot %in% scheduled_slots))
-    # print(current_slot)
-    # print(current_slot)
+      mutate(timeslot = timeslot) %>% 
+      filter(!(timeslot %in% scheduled_slots) & !(timeslot %in% adj_slots))
+    #print(scheduled_slots)
+    #print(current_slot$timeslot)
     
     # pull out who is available
     available_ducks = duck_avails %>% 
@@ -203,6 +215,7 @@ get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10,
       next_duck <- colnames(available_ducks)[1]
     }
    
+      #print(next_duck)
     # if this slot is available for next duck
     # schedule the meeting
     if(!identical(next_duck, character(0))){
@@ -212,6 +225,8 @@ get_a_schedule = function(max_iter = nrow(duck_ordered_table) * 10,
       meetings <- meetings %>% 
       rbind(tibble(duck = c(next_duck,next_duck),  
                    timeslot = c(current_slot$timeslot[1], current_slot$timeslot[1] + 1)))
+      # if we schedule a slot, we also need to remove the half hour slot before it...
+      adj_slots <- c(adj_slots, current_slot$timeslot[1] - 1)
      # print(meetings)
     }
     iter = iter + 1
@@ -256,6 +271,11 @@ We check how many 'Maybe's we have to do.
 ```{r}
 eval_schedule = function(signup, schedule, message = TRUE){
   
+  if(nrow(schedule) != (length(signup) - TIME_INDEX - 1) * NEED_SLOT){
+    cat('the schedule does not have all ducks :-(\n')
+    return(-1)
+  }else{
+  
   signup_longer <- signup %>% 
                    pivot_longer(cols = (TIME_INDEX + 2):length(.), names_to = 'duck', values_to = 'goodness')
   
@@ -266,6 +286,7 @@ eval_schedule = function(signup, schedule, message = TRUE){
   
   advisor_col = colnames(result_goodness)[5]
   
+  #print(result_goodness)
   value = mean(result_goodness[[advisor_col]]) + mean(result_goodness$goodness)
   
   if(message){
@@ -276,7 +297,7 @@ eval_schedule = function(signup, schedule, message = TRUE){
          cat('none\n')
       }
       
-      cat('1 = Maybe, students\' maybe:')
+      cat('1 = Maybe, students\' maybe:\n')
       if(nrow(result_goodness  %>% filter(goodness != 2)) > 0){
         print(ascii(result_goodness  %>% filter(goodness != 2)), type = "rest")
       }else{
@@ -286,7 +307,8 @@ eval_schedule = function(signup, schedule, message = TRUE){
       cat(paste0('overall utility is ', value, ' (higher is better) '))
   }
   
-  return(value)
+    return(value)
+  }
 }
   
 ```
@@ -304,10 +326,9 @@ eval_schedule(signup, b_schedule)
 # Generate a brunch and get the best
 
 ```{r}
-seed = seq(10, 100, length.out = 10)
+seed = seq(10, 1000, length.out = 20)
 current = 0
 schedule = NULL
-
 for(s in seed){
   set.seed(s)
   i_schedule = get_a_schedule(duck_ordered_table = duck_avail_heuristics_table[sample(nrow(duck_avail_heuristics_table)),],
